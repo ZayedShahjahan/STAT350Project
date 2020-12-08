@@ -1,0 +1,355 @@
+---
+title: "AnalysisNote"
+author: "Zayed Shahjahan"
+date: "11/29/2020"
+output: 
+  rmdformats::readthedown:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+  pdf_document: default
+  toc: true
+  html_document: default
+---
+
+Let's load the cleaned dataset
+
+```{r}
+dfFinal <- read.csv("C:/Users/zayed/Desktop/Coursework/STAT 350/TermProject/dfFinal.csv")
+
+dfFinal <- subset(dfFinal, select = -c(X))
+```
+
+Load the packages
+```{r}
+library(tidyverse)
+library(gridExtra)
+library(car)
+library(faraway)
+library(cowplot)
+library(fastDummies)
+```
+
+
+Examine the structure and summary statistics of the data
+```{r}
+summary(dfFinal)
+str(dfFinal)
+```
+
+Basics first
+
+```{r}
+cor(subset(dfFinal,select = c("adjstrength",
+                                 "adjcardio",
+                                 "adjobese",
+                                 "adjexcer",
+                                 "adjfruit",
+                                 "adjveg")))
+```
+
+```{r}
+#This is for reference, our target is adjobese
+ par(mfrow=c(2,3))
+ hist(dfFinal$perc_obese)
+ hist(dfFinal$perc_strength)
+ hist(dfFinal$perc_cardio)
+ hist(dfFinal$perc_excer)
+ hist(dfFinal$perc_fruit)
+ hist(dfFinal$perc_veg)
+```
+
+Let's examine the adjusted values
+
+```{r}
+par(mfrow=c(2,3))
+ hist(dfFinal$adjobese)
+ hist(dfFinal$adjstrength)
+ hist(dfFinal$adjcardio)
+ hist(dfFinal$adjexcer)
+ hist(dfFinal$adjfruit)
+ hist(dfFinal$adjveg)
+```
+
+Looks like the data is not as normal as we'd think it would be after adjusting for population variation
+
+
+```{r}
+
+pairs(subset(dfFinal,select = c("perc_strength",
+                                 "perc_cardio",
+                                 "perc_obese",
+                                 "perc_excer",
+                                 "perc_fruit",
+                                 "perc_veg")))
+```
+
+
+After adjusting for sample sizes we notice something very strange, variables that we would normally consider to be negatively correlated with obesity rates tend to become weakly and positively correlated. At the same time the data suggest the existence of two different clusters of data. especially in the case of the fitness related variables: Strength, Cardio and overall Excercise
+```{r}
+pairs(subset(dfFinal,select = c("adjstrength",
+                                 "adjcardio",
+                                 "adjobese",
+                                 "adjexcer",
+                                 "adjfruit",
+                                 "adjveg")))
+```
+After adjusting for sample sizes we notice something very strange, variables that we would normally consider to be negatively correlated with obesity rates tend to become weakly and positively correlated. At the same time the data suggest the existence of two different clusters of data. especially in the case of the fitness related variables: Strength, Cardio and overall Excercise
+
+
+Strength, Cardio and overall excercise are now almost perfectly
+
+
+Let's start things off with a simple linear regression of the unadjusted variables
+```{r}
+Obmod1 <- lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=dfFinal)
+
+summary(lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=dfFinal))
+
+
+```
+
+```{r}
+vif(lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=dfFinal))
+```
+
+
+Lets perform some regression diagnostics on this model. 
+
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod1)
+```
+
+As expected the unadjusted model works very well and obtain the kind of results that the pair-plots and histograms seemed to imply
+
+create a second model with the population adjusted variables
+
+```{r}
+Obmod2 <-lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=dfFinal)
+
+summary(lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=dfFinal)
+)
+
+
+```
+
+
+```{r}
+vif(lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=dfFinal))
+
+vif(lm(adjobese ~ adjstrength + adjcardio  + adjfruit + adjveg, data=dfFinal))
+
+vif(lm(adjobese ~ adjexcer  + adjfruit + adjveg, data=dfFinal))
+```
+We thus have evidence to believe that our adjusted model is not reliable But we may attain a more reliable model using Excercise Fruit consumption and vegetable consumption
+
+
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod2)
+```
+
+Based on the above diagnostics, it is reasonable to transform the adjusted variables and possibly perform a robust regression
+
+Now is a good time to restate our Linear Regression Assumptions:
+
+The relationship between the response y and the regressors is linear, at least
+approximately.\
+2. The error term $\epsilon$ has zero mean.\
+3. The error term $\epsilon$ has constant variance $\sigma^2$ .\
+4. The errors are uncorrelated.\
+5. The errors are normally distributed.\
+
+Given how overall levels of physical fitness, cardio and strength training move in our data, we need to check the added variable plot for our adjusted model
+
+```{r}
+avPlots(Obmod2)
+```
+From this we see that none of our predictor variables explain obesity rates that well. The two that perform marginally better are adjexcer and adjfruit. These move in opposite directions.
+
+```{r}
+plot(Obmod2,4)
+```
+
+Refit the data without the most influential observation. 
+
+```{r}
+Obmod3 <- lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=dfFinal[-40,])
+
+summary(Obmod3)
+```
+
+Notice that we lose significance for strength training completely. 
+
+```{r}
+lgObmod1 <- lm(sqrt(adjobese) ~  adjexcer + adjfruit + adjveg, data=dfFinal[-40,])
+
+summary(lgObmod1)
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(lgObmod1)
+```
+
+
+
+We will refrain from using strength and cardio variables and solely use adjexcer.
+
+```{r}
+Obmod4 <- lm(log(adjobese) ~ log(adjexcer) + log(adjfruit) + log(adjveg), data=dfFinal[-40,])
+
+summary(Obmod4)
+```
+```{r}
+p1 <- ggplot(dfFinal, aes(x=adjexcer,y=adjobese,color=Income))+geom_point()
+p1
+```
+This confirms a suspicion that I had about income and the outsized role it probably plays in American public health. 
+
+```{r}
+
+p1 <- ggplot(dfFinal, aes(x=adjexcer,y=adjobese,color=Income))+geom_point()
+
+p2 <- ggplot(dfFinal, aes(x=adjstrength,y=adjobese,color=Income))+geom_point()
+
+p3 <- ggplot(dfFinal, aes(x=adjcardio,y=adjobese,color=Income))+geom_point()
+
+p4 <- ggplot(dfFinal, aes(x=adjfruit,y=adjobese,color=Income))+geom_point()
+
+p5 <- ggplot(dfFinal, aes(x=adjveg,y=adjobese,color=Income))+geom_point()
+
+p6 <- ggplot(dfFinal, aes(x=Income,y=adjobese)) + geom_boxplot()
+
+plot_grid(p1,p2,p3,p4,p5,p6)
+```
+```{r}
+ggplot(dfFinal[dfFinal$Income != "$75,000 or greater",], aes(x=adjexcer,y=adjobese,color=Income))+geom_point()
+```
+I am going to perform two regressions, one without the $75,000 bracket and on only on this bracket
+
+```{r}
+Obmod75brac <- lm(adjobese ~  adjexcer + adjfruit + adjveg, data=dfFinal[dfFinal$Income == "$75,000 or greater",])
+
+summary(Obmod75brac)
+
+```
+
+```{r}
+Obmod75bracwo <- lm(adjobese ~  adjexcer + adjfruit + adjveg, data=dfFinal[dfFinal$Income != "$75,000 or greater",])
+
+summary(Obmod75bracwo)
+
+```
+```{r}
+p6+geom_hline(yintercept = mean(dfFinal$adjobese),color='red')
+```
+Time to bring out the dummies
+
+```{r}
+dfFinal <- dummy_cols(dfFinal, select_columns = 'Income')
+```
+
+Keep only the very rich
+
+```{r}
+colnames(dfFinal)
+```
+
+
+```{r}
+dfFinal <- subset(dfFinal, select = -c(21,22,23,24))
+```
+
+Rename this to something more appropriate
+
+```{r}
+dfFinal <- dfFinal %>% rename(vrich = 'Income_$75,000 or greater')
+```
+
+```{r}
+dumObmod <- lm(sqrt(adjobese) ~ adjexcer  + adjfruit + adjveg + vrich,
+               data= dfFinal)
+summary(dumObmod)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(dumObmod)
+```
+Could regional variations play a role?
+
+```{r}
+regionizer <- function(statefip){
+  if (statefip == "CT" | statefip == "ME" | statefip == "MA"| statefip == "NH"| statefip == "NJ" | statefip == "NY" | statefip == "MD" |statefip == "PA" | statefip == "RI" |statefip == "VT"| statefip == "DC"|statefip == "DE"){
+    re <- "Northeast"
+  } else if (statefip == "CO" |statefip == "AK" | statefip == "CA" | statefip == "OR" | statefip == "WA" | statefip == "NV"| statefip == "HI" | statefip == "UT"| statefip == "AZ"){
+    re <-"Western"
+  }  else if (statefip == "WY"| statefip == "MT" | statefip == "ID"|statefip == "ND" | statefip == "SD" | statefip == "NE"| statefip == "MN"| statefip == "IA"| statefip == "WI" | statefip == "IL" | statefip == "MI" | statefip == "IN"|statefip == "OH"){
+    re <-"Midwest"
+  } 
+  else if (statefip == "KS"|statefip =="KY" | statefip == "MS"| statefip =="OK"|statefip =="AR"|statefip =="LA"|statefip =="TX"|statefip =="MO"|statefip =="TN"|statefip =="NC"|statefip =="SC"|statefip =="GA"|statefip =="FL"|statefip =="AL"| statefip == "WV"| statefip == "VA" |statefip == "NM"){
+    re <-"South"
+  }
+  return(re)
+}
+```
+
+
+```{r}
+dfFinal$region <- sapply(dfFinal$LocationAbbr, regionizer)
+```
+
+```{r}
+
+class(dfFinal$region)
+```
+```{r}
+ggplot(dfFinal, aes(x=region,y=adjobese)) + geom_boxplot()
+```
+
+
+```{r}
+summary(aov(adjobese ~ region + Income, data=dfFinal))
+```
+
+
+```{r}
+finalmod <- lm(adjobese ~ adjexcer + region + vrich + adjfruit + adjveg, data=dfFinal)
+
+summary(finalmod)
+```
+```{r}
+summary(dfFinal$adjobese)
+```
+
+```{r}
+write.csv(dfFinal,file='./dfFinal2.csv')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
