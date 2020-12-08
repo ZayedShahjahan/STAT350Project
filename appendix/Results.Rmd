@@ -1,0 +1,85 @@
+---
+title: "Results & Conclusions"
+author: "Zayed Shahjahan"
+date: "12/9/2020"
+output: 
+
+  pdf_document: default
+  rmarkdown::github_document: default
+---
+
+
+ 
+Our final model is as follows:
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(gridExtra)
+library(car)
+library(faraway)
+library(cowplot)
+library(fastDummies)
+library(MASS)
+```
+
+```{r}
+df2 <- read.csv("C:/Users/zayed/Desktop/Coursework/STAT 350/TermProject/dfFinal4.csv")
+
+df2 <- subset(df2, select = -c(X))
+```
+
+
+```{r}
+
+Obmod10 <-lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df2[-c(256,40),])
+
+summary(lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df2[-c(256,40),])
+)
+```
+
+
+The VIF is as follows:
+
+Again we have more evidence that income and physical activity move together. Income was a continuous variable we would have been able to work with this better.
+```{r}
+vif(Obmod10)
+```
+
+The residuals are we expect them after removing the 2 influential observations
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod10)
+```
+
+```{r}
+avPlots(Obmod10)
+```
+
+From the Added variable plots we see that on their own, Physical activity and nutrition do well in fitting the data.
+
+We have also left out observations, 256 and 40.
+
+Our Final model leads us to the following conclusions:
+
+Physical activity is a factor, but due to its Variance inflation factor, we cannot trust the coefficient on this variable. And even if this was taken into account the practical significance of this is questionnable, especially when compared to the other variables. 
+
+Without a doubt lack nutrition and wealth are statistically and practically significant in the regression model. However it is worth noting that in the original box-and-whisker plot, (see Data Description) we saw a different relationship  between Income brackets and Obesity. In that context, as incomes increased, obesity decreased until the income bracket was the largest. In that setting obesity increased again. However, in our final model we see that the relationship between Obesity and the highest income bracket is inverted. Which is very strange. It is expected in the context of the US. It is unexpected given our understanding from the Box-And-Whisker plot. When taken together, it leaves us with more questions than answers. 
+
+As for regional variation: Being in the Southern US increases the rate of obesity but in terms of practical significance it is not that important a predictor. Health outcomes are much better if located in the Coastal regions i.e. Northeast and West. 
+
+Our model explains almost 90% of the variability in the data. This comes after the square root adjustment as well as the introduction of the categorical variables for Income and region.
+
+For future work, examining the interactions between income and physical activity will yield to a better understanding of Obesity. This can be achieved by using income on a continuous scale instead of categorical variables.
+
+Also, we used population variation as a weight to ensure more accurate variables but in hindsight is could have also distorted our interpretations. But it is worth noting that the structure of our data was such that we weren't working with individual level data to begin with. We started with what could best be described as a dataset of surveys containing percentages aggregated across income brackets and States. 
+
+As a result, utilizing every aspect of the dataset, from the State codes to the sample_sizes was not an unwarranted approach.
+
