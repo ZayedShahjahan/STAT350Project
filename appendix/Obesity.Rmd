@@ -1,0 +1,593 @@
+---
+title: 'Data Cleaning Notebook'
+author: "Zayed Shahjahan"
+date: "11/29/2020"
+output: 
+  pdf_document: default
+  html_document: default
+  github_document: default
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Start off by loading the full dataset
+```{r}
+df <- read.csv("C:/Users/zayed/Desktop/Coursework/STAT 350/TermProject/Nutrition__Physical_Activity__and_Obesity_-_Behavioral_Risk_Factor_Surveillance_System.csv")
+
+```
+
+```{r}
+library(tidyverse)
+library(gridExtra)
+library(car)
+library(faraway)
+```
+
+There is a great deal of excess information in this dataset. It is also not stored in a tidy format. We are going to have to preprocess it before we can perform our analysis. 
+
+```{r}
+#Remove extraneous information
+dflite <- subset(df, select = -c(Low_Confidence_Limit, 
+                                 High_Confidence_Limit, 
+                                 YearEnd, Topic, Class, 
+                                 Data_Value_Unit, 
+                                 QuestionID, 
+                                 ClassID, 
+                                 TopicID, 
+                                 DataValueTypeID, 
+                                 Data_Value_Type, 
+                                 Data_Value_Footnote_Symbol, 
+                                 Data_Value_Footnote, 
+                                 StratificationCategoryId1, 
+                                 StratificationID1))
+```
+
+We need to check what years are available
+
+```{r}
+table(dflite$YearStart)
+```
+
+For our analysis we are going to work with data from 2015
+
+```{r}
+#Questions that were asked in the surveys within the dataset
+unique(dflite$Question)
+
+```
+
+These are our research questions
+```{r}
+wlifting <- "Percent of adults who engage in muscle-strengthening activities on 2 or more days a week"
+cardio <- "Percent of adults who achieve at least 150 minutes a week of moderate-intensity aerobic physical activity or 75 minutes a week of vigorous-intensity aerobic activity (or an equivalent combination)"
+wliftingAndcardio <- "Percent of adults who achieve at least 150 minutes a week of moderate-intensity aerobic physical activity or 75 minutes a week of vigorous-intensity aerobic physical activity and engage in muscle-strengthening activities on 2 or more days a week"
+obese <-  "Percent of adults aged 18 years and older who have obesity"
+fruit <- "Percent of adults who report consuming fruit less than one time daily"
+veg <- "Percent of adults who report consuming vegetables less than one time daily"
+yr <- 2015
+```
+
+
+We will focus on the income stratification category of the CDC data
+
+```{r}
+unique(dflite$Income)
+```
+Now we extract the data that we need in the following code chunks
+
+```{r}
+dfInc <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                           Stratification1 == '$25,000 - $34,999'|
+                           Stratification1 == '$35,000 - $49,999'|
+                           Stratification1 == '$50,000 - $74,999'|
+                           Stratification1 == '$75,000 or greater'|
+                           Stratification1 == 'Less than $15000'))
+
+dfInc <- filter(dfInc, Question == wlifting)
+
+dfInc <- filter(dfInc, YearStart == yr)
+
+#Getting the national average of people who lift weights
+wliftavgByInc <- mean(filter(dfInc, LocationDesc == "National")$Data_Value)
+```
+
+```{r}
+c <- ggplot(dfInc, aes(x=Income,y=Data_Value)) + 
+  geom_boxplot()+geom_hline(yintercept = wliftavgByInc,color='red')+
+  ggtitle("Box and whisker comparison of strength training activity by Income")+
+  labs(x = "Income Bracket",
+       y = "Percentage of people who workout more than 2x a week",caption = "red line represents national average")
+c
+```
+We only need the "National" category to compute national averages, beyond this it does not serve any other purpose in our analysis. So we are going to get rid of it. We are also going to restrict our analysis to the 50 States and the District of Columbia
+
+```{r}
+dfInc <- filter(dfInc, LocationDesc != "National" & LocationDesc != "Guam" &
+                  LocationDesc != "Puerto Rico")
+unique(dfInc$LocationAbbr)
+```
+
+
+Notice that the sample size can be a proxy for proportion of income strata in each State. This information could be useful later.
+
+
+
+Let's aggregate some information at the state level
+```{r}
+dfstlvl <- dfInc %>% group_by(LocationDesc)%>%summarise(fit_perc = mean(Data_Value))
+mean(dfstlvl$fit_perc)
+dfstlvl <- dfstlvl[order(dfstlvl$fit_perc),]
+
+leastfit <- head(dfstlvl)
+fittest <- tail(dfstlvl)
+```
+We are going to take sample populations into account in our analysis
+```{r}
+dfInc <- dfInc %>% rename(weight_samplesize = Sample_Size)
+```
+```{r}
+dfstpop <- dfInc %>% group_by(LocationDesc)%>%summarise(totalpop = sum(weight_samplesize))
+#This is the average respondent size
+mean(dfstpop$totalpop)
+
+```
+```{r}
+#We add back the column for total pop to our dfInc
+dfInc <- merge(dfInc,dfstpop,by=c("LocationDesc"))
+
+```
+
+```{r}
+#Create a new column corresponding to proportion of survey population
+dfInc$propPop <- dfInc$weight_samplesize/dfInc$totalpop.y
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dfInc$reweightedDataVal <- dfInc$Data_Value*dfInc$propPop
+
+```
+
+```{r}
+newnatstrengthrate <- mean(dfInc$reweightedDataVal)
+```
+
+
+
+Now we can assess more accurately the fittest and least fit stats
+```{r}
+dfstlvlrew <- dfInc %>% group_by(LocationDesc)%>%summarise(fit_perc = mean(reweightedDataVal))
+mean(dfstlvlrew$fit_perc)
+dfstlvlrew <- dfstlvlrew[order(dfstlvlrew$fit_perc),]
+
+leastfitrew <- head(dfstlvlrew)
+fittestrew <- tail(dfstlvlrew)
+```
+
+```{r}
+a <- ggplot(data=fittestrew,aes(x=fit_perc,y=LocationDesc))+
+  geom_bar(stat = 'identity')+
+  geom_vline(xintercept = newnatstrengthrate,color='red')+
+  ggtitle("Fittest States and Territories")+
+  labs(x = "Percentage of people who workout more than 2x a week",
+       y = "State or Territory")
+
+
+b <- ggplot(data=leastfitrew,aes(x=fit_perc,y=LocationDesc))+
+  geom_bar(stat = 'identity')+
+  geom_vline(xintercept = newnatstrengthrate,color='red')+
+  ggtitle("Least Fit States and Territories")+
+  labs(x = "Percentage of people who workout more than 2x a week",
+       y = "State or Territory",caption = "red line represents national average")
+
+#Bar graph of the fittest and the least fit states and territories
+grid.arrange(a,b)
+```
+Given how much the top 5 and bottom 5 have changed because of our re-weighting procedure it should come as no surprise that this is what we should do for the rest of our data as we move on to the other numeric columns
+
+
+
+
+
+
+
+
+
+
+
+
+
+Let's see what the fittest and least states are and how they compare
+```{r}
+a <- ggplot(data=fittest,aes(x=fit_perc,y=LocationDesc))+
+  geom_bar(stat = 'identity')+
+  geom_vline(xintercept = wliftavgByInc,color='red')+
+  ggtitle("Fittest States and Territories")+
+  labs(x = "Percentage of people who workout more than 2x a week",
+       y = "State or Territory")
+
+
+b <- ggplot(data=leastfit,aes(x=fit_perc,y=LocationDesc))+
+  geom_bar(stat = 'identity')+
+  geom_vline(xintercept = wliftavgByInc,color='red')+
+  ggtitle("Least Fit States and Territories")+
+  labs(x = "Percentage of people who workout more than 2x a week",
+       y = "State or Territory",caption = "red line represents national average")
+
+#Bar graph of the fittest and the least fit states and territories
+grid.arrange(a,b)
+```
+Let's rename the sample_size column to something more appropriate
+
+```{r}
+dfInc <- dfInc %>% rename(weight_samplesize = Sample_Size)
+```
+
+Now we move on to obtaining the remaining numeric columns for our analysis dataset
+
+First for Cardio Data
+```{r}
+#Just like before, get the income brackets
+dfCardio <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                              Stratification1 == '$25,000 - $34,999'|
+                              Stratification1 == '$35,000 - $49,999'|
+                              Stratification1 == '$50,000 - $74,999'|
+                              Stratification1 == '$75,000 or greater'|
+                              Stratification1 == 'Less than $15000'))
+#keep only the question related to cardio
+ dfCardio <- filter(dfCardio, Question == cardio)
+#Just 2015 pls
+ dfCardio <- filter(dfCardio, YearStart == yr)
+#Get the national rate of cardio 
+ filter(dfCardio, LocationDesc == "National")$Data_Value
+ natCardiorate <- mean(filter(dfCardio, LocationDesc == "National")$Data_Value)
+ 
+ dfCardio <- filter(dfCardio, LocationDesc != "National" & LocationDesc != "Guam" & LocationDesc != "Puerto Rico")
+ 
+ dfCardio <- dfCardio %>% rename(cardio_samplesize = Sample_Size)
+ 
+ dfstpopcardio <- dfCardio %>% group_by(LocationDesc)%>%summarise(totalpop = sum(cardio_samplesize))
+#This is the average respondent size
+dfCardio <- merge(dfCardio,dfstpopcardio,by=c("LocationDesc"))
+
+
+#Create a new column corresponding to proportion of survey population
+dfCardio$propPop <- dfCardio$cardio_samplesize/dfCardio$totalpop
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dfCardio$reweightedDataVal <- dfCardio$Data_Value*dfCardio$propPop
+newnatCardioRate <- mean(dfCardio$reweightedDataVal)
+```
+
+Do the same for overall fitness i.e. Cardio + Strength
+
+```{r}
+dfFitness <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                              Stratification1 == '$25,000 - $34,999'|
+                              Stratification1 == '$35,000 - $49,999'|
+                              Stratification1 == '$50,000 - $74,999'|
+                              Stratification1 == '$75,000 or greater'|
+                              Stratification1 == 'Less than $15000'))
+#keep only the question related to Fitness
+ dfFitness <- filter(dfFitness, Question == wliftingAndcardio)
+#Just 2015 pls
+ dfFitness <- filter(dfFitness, YearStart == yr)
+#Get the national rate of Fitness 
+ filter(dfFitness, LocationDesc == "National")$Data_Value
+ natFitnessrate <- mean(filter(dfFitness, LocationDesc == "National")$Data_Value)
+ 
+ dfFitness <- filter(dfFitness, LocationDesc != "National" & LocationDesc != "Guam" & LocationDesc != "Puerto Rico")
+ 
+ dfFitness <- dfFitness %>% rename(fitness_samplesize = Sample_Size)
+ 
+ dfstpopfitness <- dfFitness %>% group_by(LocationDesc)%>%summarise(totalpop = sum(fitness_samplesize))
+#This is the average respondent size
+dfFitness <- merge(dfFitness,dfstpopfitness,by=c("LocationDesc"))
+
+
+#Create a new column corresponding to proportion of survey population
+dfFitness$propPop <- dfFitness$fitness_samplesize/dfFitness$totalpop
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dfFitness$reweightedDataVal <- dfFitness$Data_Value*dfFitness$propPop
+newnatFitnessRate <- mean(dfFitness$reweightedDataVal)
+```
+
+For Obesity
+```{r}
+dfObese <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                              Stratification1 == '$25,000 - $34,999'|
+                              Stratification1 == '$35,000 - $49,999'|
+                              Stratification1 == '$50,000 - $74,999'|
+                              Stratification1 == '$75,000 or greater'|
+                              Stratification1 == 'Less than $15000'))
+#keep only the question related to Fitness
+ dfObese <- filter(dfObese, Question == obese)
+#Just 2015 pls
+ dfObese <- filter(dfObese, YearStart == yr)
+#Get the national rate of Fitness 
+ filter(dfObese, LocationDesc == "National")$Data_Value
+ natObesityrate <- mean(filter(dfObese, LocationDesc == "National")$Data_Value)
+ 
+ dfObese <- filter(dfObese, LocationDesc != "National" & LocationDesc != "Guam" & LocationDesc != "Puerto Rico")
+ 
+ dfObese <- dfObese %>% rename(obese_samplesize = Sample_Size)
+ 
+ dfstpopobese <- dfObese %>% group_by(LocationDesc)%>%summarise(totalpop = sum(obese_samplesize))
+#This is the average respondent size
+dfObese <- merge(dfObese,dfstpopobese,by=c("LocationDesc"))
+
+
+#Create a new column corresponding to proportion of survey population
+dfObese$propPop <- dfObese$obese_samplesize/dfObese$totalpop
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dfObese$reweightedDataVal <- dfObese$Data_Value*dfObese$propPop
+newnatObeseRate <- mean(dfObese$reweightedDataVal)
+```
+
+For Fruit Consumption
+
+```{r}
+dffruit <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                              Stratification1 == '$25,000 - $34,999'|
+                              Stratification1 == '$35,000 - $49,999'|
+                              Stratification1 == '$50,000 - $74,999'|
+                              Stratification1 == '$75,000 or greater'|
+                              Stratification1 == 'Less than $15000'))
+#keep only the question related to Fitness
+ dffruit <- filter(dffruit, Question == fruit)
+#Just 2015 pls
+ dffruit <- filter(dffruit, YearStart == yr)
+#Get the national rate of Fitness 
+ filter(dffruit, LocationDesc == "National")$Data_Value
+ natfruitrate <- mean(filter(dffruit, LocationDesc == "National")$Data_Value)
+ 
+ dffruit <- filter(dffruit, LocationDesc != "National" & LocationDesc != "Guam" & LocationDesc != "Puerto Rico")
+ 
+ dffruit <- dffruit %>% rename(fruit_samplesize = Sample_Size)
+ 
+ dfstpopfruit <- dffruit %>% group_by(LocationDesc)%>%summarise(totalpop = sum(fruit_samplesize))
+#This is the average respondent size
+dffruit <- merge(dffruit,dfstpopfruit,by=c("LocationDesc"))
+
+
+#Create a new column corresponding to proportion of survey population
+dffruit$propPop <- dffruit$fruit_samplesize/dffruit$totalpop
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dffruit$reweightedDataVal <- dffruit$Data_Value*dffruit$propPop
+newnatfruitRate <- mean(dffruit$reweightedDataVal)
+```
+
+For Vegetable consumption
+```{r}
+dfveg <- filter(dflite, (Stratification1 == '$15,000 - $24,999' | 
+                              Stratification1 == '$25,000 - $34,999'|
+                              Stratification1 == '$35,000 - $49,999'|
+                              Stratification1 == '$50,000 - $74,999'|
+                              Stratification1 == '$75,000 or greater'|
+                              Stratification1 == 'Less than $15000'))
+#keep only the question related to Fitness
+ dfveg <- filter(dfveg, Question == veg)
+#Just 2015 pls
+ dfveg <- filter(dfveg, YearStart == yr)
+#Get the national rate of Fitness 
+ filter(dfveg, LocationDesc == "National")$Data_Value
+ natvegrate <- mean(filter(dfveg, LocationDesc == "National")$Data_Value)
+ 
+ dfveg <- filter(dfveg, LocationDesc != "National" & LocationDesc != "Guam" & LocationDesc != "Puerto Rico")
+ 
+ dfveg <- dfveg %>% rename(veg_samplesize = Sample_Size)
+ 
+ dfstpopveg <- dfveg %>% group_by(LocationDesc)%>%summarise(totalpop = sum(veg_samplesize))
+#This is the average respondent size
+dfveg <- merge(dfveg,dfstpopveg,by=c("LocationDesc"))
+
+
+#Create a new column corresponding to proportion of survey population
+dfveg$propPop <- dfveg$veg_samplesize/dfveg$totalpop
+#These are our relative population weights, we are going to multiply our data values with the weights to take populations into consideration, this will lead to a far nuanced analysis
+dfveg$reweightedDataVal <- dfveg$Data_Value*dfveg$propPop
+newnatvegtRate <- mean(dfveg$reweightedDataVal)
+```
+
+Now that we have these datasets with percentages of state level health and physical fitness indicators stratified by income and adjusted for state populations, we can now begin constructing the dataset we will use to perform linear regression
+
+First we need to clean up the data for the remaining extraneous information
+
+```{r}
+colnames(dfInc)
+```
+
+We are going to keep LocationAbbr (these are our fips codes);  Data_Value (for reference); Income; propPop (rename this in each of our dataset); reweightedDataVal (rename this in each of our datasets)
+
+Keep only what we need, drop the rest
+
+```{r}
+dfInc2 <- subset(dfInc, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+
+dfCardio2 <- subset(dfCardio, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+
+dfFitness2 <- subset(dfFitness, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+
+dfObese2 <- subset(dfObese, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+dffruit2 <- subset(dffruit, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+
+dfveg2 <- subset(dfveg, select = c(LocationAbbr,
+                                   Data_Value,
+                                   Income,
+                                   propPop,
+                                   reweightedDataVal))
+
+```
+
+Let's rename some of the column names
+```{r}
+#Renaming Data value
+ dfInc2 <- dfInc2 %>% rename(perc_strength = Data_Value)
+ dfCardio2 <- dfCardio2 %>% rename(perc_cardio = Data_Value)
+ dfFitness2 <- dfFitness2 %>% rename(perc_excer = Data_Value)
+ dfObese2 <- dfObese2 %>% rename(perc_obese = Data_Value)
+ dffruit2 <- dffruit2 %>% rename(perc_fruit = Data_Value)
+ dfveg2 <- dfveg2 %>% rename(perc_veg = Data_Value)
+ #Renaming PropPop
+ dfInc2 <- dfInc2 %>% rename(propstrength = propPop)
+ dfCardio2 <- dfCardio2 %>% rename(propcardio = propPop)
+ dfFitness2 <- dfFitness2 %>% rename(prop_excer = propPop)
+ dfObese2 <- dfObese2 %>% rename(prop_obese = propPop)
+ dffruit2 <- dffruit2 %>% rename(prop_fruit = propPop)
+ dfveg2 <- dfveg2 %>% rename(prop_veg = propPop)
+ #Renaming reweightedDataVal
+ dfInc2 <- dfInc2 %>% rename(adjstrength = reweightedDataVal)
+ dfCardio2 <- dfCardio2 %>% rename(adjcardio = reweightedDataVal)
+ dfFitness2 <- dfFitness2 %>% rename(adjexcer = reweightedDataVal)
+ dfObese2 <- dfObese2 %>% rename(adjobese = reweightedDataVal)
+ dffruit2 <- dffruit2 %>% rename(adjfruit = reweightedDataVal)
+ dfveg2 <- dfveg2 %>% rename(adjveg = reweightedDataVal)
+```
+
+Now we merge the datasets, our target variable is adjobese
+
+```{r}
+ CardWeightMerge <- merge(dfInc2,dfCardio2,by=c("LocationAbbr","Income"))
+ 
+ ObeseFitnessmerge <- merge(dfObese2,dfFitness2,by=c("LocationAbbr","Income"))
+ 
+ FruitVegmerge <- merge(dffruit2,dfveg2,by=c("LocationAbbr","Income"))
+ 
+ dfFinal <- merge(CardWeightMerge,ObeseFitnessmerge,by=c("LocationAbbr","Income"))
+ 
+ dfFinal <- merge(dfFinal, FruitVegmerge, by=c("LocationAbbr","Income"))
+ 
+
+```
+
+This is the dataset we will be working with.
+
+before proceeding I will write this into a separate csv file
+
+```{r}
+
+
+write.csv(dfFinal,file='./dfFinal.csv')
+```
+I am going to use a different analysis notebook for the rest of the project
+
+```{r}
+summary(dfFinal)
+```
+
+```{r}
+str(dfFinal)
+```
+
+Basics first
+```{r}
+#This is for reference, our target is adjobese
+ par(mfrow=c(2,3))
+ hist(dfFinal$perc_obese)
+ hist(dfFinal$perc_strength)
+ hist(dfFinal$perc_cardio)
+ hist(dfFinal$perc_excer)
+ hist(dfFinal$perc_fruit)
+ hist(dfFinal$perc_veg)
+```
+
+
+```{r}
+par(mfrow=c(2,3))
+ hist(dfFinal$adjobese)
+ hist(dfFinal$adjstrength)
+ hist(dfFinal$adjcardio)
+ hist(dfFinal$adjexcer)
+ hist(dfFinal$adjfruit)
+ hist(dfFinal$adjveg)
+```
+Looks like the data is not as normal as we'd think it would be after adjusting for population variation
+
+```{r}
+pairs(subset(dfFinal,select = c("perc_strength",
+                                 "perc_cardio",
+                                 "perc_obese",
+                                 "perc_excer",
+                                 "perc_fruit",
+                                 "perc_veg")))
+```
+Oddly in the unadjusted data, Obesity and our nutrition indicators are positively correlated
+
+```{r}
+pairs(subset(dfFinal,select = c("adjstrength",
+                                 "adjcardio",
+                                 "adjobese",
+                                 "adjexcer",
+                                 "adjfruit",
+                                 "adjveg")))
+```
+The pairplots and the histograms of the population adjusted data should give us a lot to think about. It makes sens that there will be a strong linear relationship between adjstrength, adjcardio and adjexcer. People who engage in both strength training and cardio at least a little bit also engage in these activities in isolation. After the population adjustment these three variables are even more strongly related
+
+
+
+
+Let's start things off with a simple linear regression of the unadjusted variables
+```{r}
+Obmod1 <- lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=dfFinal)
+
+summary(Obmod1)
+
+anova(Obmod1)
+#Lets perform some regression diagnostics on this model
+```
+
+Lets perform some regression diagnostics on this model. As expected the unadjusted model works very well and obtain the kind of results that the pair-plots and histograms seemed to imply
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod1)
+```
+
+Let create a second model with the population adjusted variables
+
+```{r}
+Obmod2 <- lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=dfFinal)
+
+summary(Obmod1)
+
+anova(Obmod2)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
