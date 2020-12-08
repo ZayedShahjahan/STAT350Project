@@ -1,0 +1,251 @@
+---
+title: "Methods"
+author: "Zayed Shahjahan"
+date: "12/9/2020"
+output: 
+
+  pdf_document: default
+  rmarkdown::github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(gridExtra)
+library(car)
+library(faraway)
+library(cowplot)
+library(fastDummies)
+library(MASS)
+```
+
+```{r}
+df <- read.csv("C:/Users/zayed/Desktop/Coursework/STAT 350/TermProject/dfFinal3.csv")
+
+df <- subset(df, select = -c(X))
+```
+
+We will now examine the methods used in the analysis of the Obesity data. First we start by examining the first 5 entries
+
+```{r echo=FALSE}
+head(df)
+```
+
+
+We first fit a model to the unadjusted variables. We use only the numeric variables
+
+```{r}
+Obmod1 <- lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=df)
+
+summary(lm(perc_obese ~ perc_strength + perc_cardio + perc_excer + perc_fruit + perc_veg, data=df))
+
+```
+
+The VIF is:
+```{r}
+vif(Obmod1)
+```
+
+This is to be expected as perc_excer is strongly correlated with perc_strength and perc_cardio.
+
+We will also perform some regression diagnostics on this model
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod1)
+```
+
+Notice that our added random data point has been flagged as a potential outlier. 
+This model is to serve as our reference model. The population adjusted model with Income and State-level dummies is our primary focus.
+
+
+```{r}
+Obmod2 <-lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=df)
+
+summary(lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=df)
+)
+```
+
+The VIF is:
+```{r}
+vif(Obmod2)
+```
+
+This is immediately an issue. Multicollinearity is very pronounced in the second model and needs to be addressed.
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod2)
+```
+
+Again, our added datapoint is flagged as an outlier and it is likely that this is due to picking points at random. It is complicating things so I am going to work on dataset without this point
+
+```{r}
+Obmod3 <-lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=df[-256,])
+
+summary(lm(adjobese ~ adjstrength + adjcardio + adjexcer + adjfruit + adjveg, data=df[-256,])
+)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod3)
+```
+
+Without point 256, the only other potential outlier is point 40, this corresponds to the $75,000 or greater income bracket of the District of Columbia.
+
+In order to deal with the multicollinearity without droping variables, I have decided to combine the three physical activity related variables into one
+
+Below is the summary for this new variable
+
+```{r}
+df$phys <- (df$adjstrength + df$adjcardio + df$adjobese)/3
+
+summary(df$phys)
+```
+
+
+Refitting the model with this new variable yields the following:
+
+```{r}
+Obmod4 <-lm(adjobese ~ phys + adjfruit + adjveg, data=df[-256,])
+
+summary(lm(adjobese ~ phys + adjfruit + adjveg, data=df[-256,])
+)
+```
+
+The VIF is:
+```{r}
+vif(Obmod4)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod4)
+```
+
+When taking out the outlier we observe the following:
+
+```{r}
+Obmod5 <-lm(adjobese ~ phys + adjfruit + adjveg, data=df[-c(256,40),])
+
+summary(lm(adjobese ~ phys + adjfruit + adjveg, data=df[-c(256,40),])
+)
+```
+
+
+We will now perform a robust regression with Huber's psi function to check whether the coefficients differ significantly
+
+```{r}
+robObmod1 <- rlm(adjobese ~ phys + adjfruit + adjveg, data=df[-c(256,40),],psi=psi.huber)
+
+summary(robObmod1)
+```
+
+From this we conclude that our non-robust model is adequate. And we will build on it.
+
+To address the multicollinearity concern for the lack of fruit and vegetable consumption we will perform the same procedure on these to variables
+
+```{r}
+df$nutri <- (df$adjfruit + df$adjveg)/2
+
+summary(df$nutri)
+```
+
+
+Using this adjustment yields the following model
+```{r}
+Obmod6 <-lm(adjobese ~ phys + nutri, data=df[-c(256,40),])
+
+summary(lm(adjobese ~ phys + nutri, data=df[-c(256,40),])
+)
+```
+
+```{r}
+vif(Obmod6)
+```
+
+We can now be assured that our estimates can be trusted
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod6)
+```
+
+If we add the vrich dummy variable to the model we obtain:
+
+```{r}
+Obmod7 <-lm(adjobese ~ phys + nutri + vrich, data=df[-c(256,40),])
+
+summary(lm(adjobese ~ phys + nutri + vrich, data=df[-c(256,40),])
+)
+```
+
+
+When controlling for region and adjusting for the u-shaped pattern of the residuals:
+
+```{r}
+
+Obmod8 <-lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df[-c(256,40),])
+
+summary(lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df[-c(256,40),])
+)
+```
+
+
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(Obmod8)
+```
+
+```{r}
+pairs(subset(df,select = c("adjobese",
+                                 "phys",
+                                 "nutri")))
+```
+
+The physical activity cluster is more pronounced after the variables are merged into one. The lack of nutrition has the greatest  effect on Obesity rates and this demands some investigation
+
+```{r}
+Obmod0 <-lm(sqrt(adjobese) ~  nutri + vrich + region, data=df[-c(256,40),])
+
+summary(lm(sqrt(adjobese) ~  nutri + vrich + region, data=df[-c(256,40),])
+)
+```
+
+The change in signs on the vrich variables gives credence to the idea that physical activity and Income move in the same direction and this latent influence is reflected in our model that includes both of these variables.
+
+```{r}
+Obmod0 <-rlm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df[-c(256),])
+
+summary(rlm(sqrt(adjobese) ~ phys  +  nutri + vrich + region, data=df[-c(256),])
+)
+```
+
+Therefore our final model is one where the square root of adjusted obesity percentage is the target variable and the regressors are: phys (physical activity), nutri(lack of nutrition), vrich(dummy variable: 1 if income 75,000 or greater, 0 otherwise), region(factor)
+
+
+```{r}
+
+Obmod10 <-lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df[-c(256,40),])
+
+summary(lm(sqrt(adjobese) ~ phys + nutri + vrich + region, data=df[-c(256,40),])
+)
+```
+
+```{r}
+write.csv(df,file='./dfFinal4.csv')
+```
+
+
+
+
+
+
